@@ -40,7 +40,7 @@ A noter par ailleurs que 96% de l'actif consolidé est situé au Maroc.
 
 La ventilation du chiffre d'affaires consolidé par produit et par zone géographique réalisé courant l'exercice 2024 est détaillée comme suit
 
-The chart shows the distribution of the 2010 survey results regarding the use of chiffre d'affaires par product in France. The survey was conducted in 2010. The majority of respondents (69%) use chiffre d'affaires par product in France.
+The figure on the left shows the distribution of business by product, with "engrais" (fertilizers) accounting for 69% of the total. The remaining 31% is divided among other products. The figure on the right presents the distribution of business by geographical region, with "Afrique" (Africa) accounting for 21% of the total. Other regions include "Amérique du Sud" (South America), "Asie" (Asia), "Océanie" (Oceania), "Amérique du Nord" (North America), "Inde" (India), and "Europe".
 
 <!-- image -->
 
