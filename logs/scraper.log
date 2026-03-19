@@ -1,0 +1,51 @@
+2026-03-19 12:08:01 - INFO - Starting extraction for PDF: RFA2024-pages.pdf
+2026-03-19 12:08:01 - INFO - Stage 1/4 - Converting document
+2026-03-19 12:09:18 - INFO - Conversion completed
+2026-03-19 12:09:18 - INFO - Document object ready
+2026-03-19 12:09:18 - INFO - Stage 3/4 - Building sequential markdown in source order
+2026-03-19 12:09:18 - INFO - Figure 1 -> inline in markdown
+2026-03-19 12:09:19 - INFO - Table 1 -> inline in markdown
+2026-03-19 12:09:19 - INFO - Table 2 -> inline in markdown
+2026-03-19 12:09:19 - INFO - Table 3 -> inline in markdown
+2026-03-19 12:09:19 - INFO - Stage 4/4 - Markdown written to output\docling\full_document.md
+2026-03-19 12:09:19 - INFO - ==================================================
+2026-03-19 12:09:19 - INFO - DOCLING EXTRACTION SUMMARY
+2026-03-19 12:09:19 - INFO - ==================================================
+2026-03-19 12:09:19 - INFO - Tables (inline): 3
+2026-03-19 12:09:19 - INFO - Figures (inline): 1
+2026-03-19 12:09:19 - INFO - Output directory: output\docling
+2026-03-19 12:09:19 - INFO - Output file: full_document.md
+2026-03-19 12:11:23 - INFO - Starting extraction for PDF: RFA2024-pages.pdf
+2026-03-19 12:11:23 - INFO - Stage 1/4 - Converting document
+2026-03-19 12:12:34 - INFO - Conversion completed
+2026-03-19 12:12:34 - INFO - Document object ready
+2026-03-19 12:12:34 - INFO - Stage 3/4 - Building sequential markdown in source order
+2026-03-19 12:12:34 - INFO - Figure 1 -> inline in markdown
+2026-03-19 12:12:34 - INFO - Table 1 -> inline in markdown
+2026-03-19 12:12:34 - INFO - Table 2 -> inline in markdown
+2026-03-19 12:12:34 - INFO - Table 3 -> inline in markdown
+2026-03-19 12:12:34 - INFO - Stage 4/4 - Markdown written to output\docling\full_document.md
+2026-03-19 12:12:34 - INFO - ==================================================
+2026-03-19 12:12:34 - INFO - DOCLING EXTRACTION SUMMARY
+2026-03-19 12:12:34 - INFO - ==================================================
+2026-03-19 12:12:34 - INFO - Tables (inline): 3
+2026-03-19 12:12:34 - INFO - Figures (inline): 1
+2026-03-19 12:12:34 - INFO - Output directory: output\docling
+2026-03-19 12:12:34 - INFO - Output file: full_document.md
+2026-03-19 12:14:02 - INFO - Starting extraction for PDF: RFA2024-pages.pdf
+2026-03-19 12:14:02 - INFO - Stage 1/4 - Converting document
+2026-03-19 12:14:31 - INFO - Conversion completed
+2026-03-19 12:14:31 - INFO - Document object ready
+2026-03-19 12:14:31 - INFO - Stage 3/4 - Building sequential markdown in source order
+2026-03-19 12:14:31 - INFO - Figure 1 -> inline in markdown
+2026-03-19 12:14:31 - INFO - Table 1 -> inline in markdown
+2026-03-19 12:14:31 - INFO - Table 2 -> inline in markdown
+2026-03-19 12:14:31 - INFO - Table 3 -> inline in markdown
+2026-03-19 12:14:31 - INFO - Stage 4/4 - Markdown written to output\docling\full_document.md
+2026-03-19 12:14:31 - INFO - ==================================================
+2026-03-19 12:14:31 - INFO - DOCLING EXTRACTION SUMMARY
+2026-03-19 12:14:31 - INFO - ==================================================
+2026-03-19 12:14:31 - INFO - Tables (inline): 3
+2026-03-19 12:14:31 - INFO - Figures (inline): 1
+2026-03-19 12:14:31 - INFO - Output directory: output\docling
+2026-03-19 12:14:31 - INFO - Output file: full_document.md

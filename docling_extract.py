@@ -1,5 +1,5 @@
 """
-Docling extraction script for complex PDF documents (RAG chunking)
+Docling extraction script for complex PDF documents
 
 Setup:
     1. Replace your pyproject.toml with the one provided
@@ -10,239 +10,211 @@ Setup:
 """
 
 import os
-import json
-import shutil
-import platform
+import logging
 from pathlib import Path
+from typing import List
 
-# ── Windows: disable symlinks before any HF import ───────────────────────────
-os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
-os.environ["HUGGINGFACE_HUB_VERBOSITY"] = "error"
-
-if platform.system() == "Windows":
-    try:
-        import huggingface_hub.file_download as _hf
-        def _no_symlink(src, dst, **kw):
-            if not os.path.exists(dst):
-                shutil.copy2(src, dst)
-        _hf._create_symlink = _no_symlink
-    except Exception:
-        pass
-
+from dotenv import load_dotenv 
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import (
     PdfPipelineOptions,
     PictureDescriptionApiOptions,
 )
-from docling.datamodel.accelerator_options import AcceleratorOptions, AcceleratorDevice
-from docling.chunking import HybridChunker
+from docling_core.types.doc.document import TextItem, SectionHeaderItem, ListItem, TableItem, PictureItem
+from hierarchical.postprocessor import ResultPostprocessor
+from logger import get_logger
 
-# ── Config ────────────────────────────────────────────────────────────────────
-PDF_PATH   = "RFA2024-pages.pdf"
-OUTPUT_DIR = Path("output") / "docling"
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+class DoclingExtractor:
+    def __init__(
+        self,
+        pdf_path: str | None = None,
+        output_dir: str | None = None,
+        use_vlm: bool | None = None,
+        vllm_url: str | None = None,
+        vllm_model: str | None = None,
+        use_hierarchical_headings: bool | None = None,
+    ):
+        load_dotenv()
 
-# Set to False if vLLM is not running
-USE_VLM    = True
-VLLM_URL   = "http://localhost:8000/v1/chat/completions"
-VLLM_MODEL = "Qwen/Qwen2-VL-2B-Instruct-AWQ"
+        self.pdf_path = pdf_path or os.getenv("PDF_PATH", "RFA2024-pages.pdf")
+        self.output_dir = Path(output_dir or os.getenv("OUTPUT_DIR", "output/docling"))
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
+        self.use_vlm = use_vlm if use_vlm is not None else os.getenv("USE_VLM", "True").lower() == "true"
+        self.vllm_url = vllm_url or os.getenv("VLLM_URL", "http://localhost:8000/v1/chat/completions")
+        self.vllm_model = vllm_model or os.getenv("VLLM_MODEL", "Qwen/Qwen2-VL-2B-Instruct-AWQ")
+        self.use_hierarchical_headings = (
+            use_hierarchical_headings
+            if use_hierarchical_headings is not None
+            else os.getenv("USE_HIERARCHICAL_HEADINGS", "True").lower() == "true"
+        )
 
-# ── 1. Pipeline options ───────────────────────────────────────────────────────
-pipeline_options = PdfPipelineOptions()
+        self.logger = get_logger(name="DoclingExtract", log_level=logging.DEBUG)
+        self.logger.info("Starting extraction for PDF: %s", self.pdf_path)
 
-pipeline_options.accelerator_options = AcceleratorOptions(
-    device=AcceleratorDevice.CUDA
-)
+    def _build_pipeline_options(self) -> PdfPipelineOptions:
+        options = PdfPipelineOptions()
+        options.do_ocr = True
+        options.ocr_options.lang = ["fr", "en"]
+        options.do_table_structure = True
+        options.generate_picture_images = True
 
-pipeline_options.do_ocr = True
-pipeline_options.ocr_options.lang = ["fr", "en"]
+        # Picture description via vLLM API — no local model loading, no quantization issues
+        options.do_picture_description = self.use_vlm
+        options.enable_remote_services = self.use_vlm
+        if self.use_vlm:
+            options.picture_description_options = PictureDescriptionApiOptions(
+                url=self.vllm_url,
+                params=dict(
+                    model=self.vllm_model,
+                    temperature=0.0,
+                ),
+                prompt=(
+                    "You are analyzing a figure from a French report. "
+                    "Do not limit the number of lines in your extraction when the figure contains many rows of data. "
+                    "If the figure is data-heavy and contains explicit numeric values (for example a table or a grid with numbers), "
+                    "convert the extracted content into complete HTML table(s) using <table>, <tr>, <th>, and <td>. "
+                    "If the image contains multiple distinct data regions, output multiple HTML tables instead of merging unrelated data into one table. "
+                    "Do not wrap table output inside <chart> tags. "
+                    "If the figure is a chart where exact values are not explicitly available (for example a line chart without precise point labels), "
+                    "explain what the chart shows and wrap the full explanation inside a <chart>...</chart> tag."
+                ),
+                time =300,  # seconds (5 minutes for image processing)
+            )
 
-pipeline_options.do_table_structure = True
-pipeline_options.table_structure_options.do_cell_matching = True
+        return options
 
-pipeline_options.generate_picture_images = True
-pipeline_options.images_scale = 2.0
+    def _convert(self):
+        self.logger.info("Stage 1/4 - Converting document")
+        converter = DocumentConverter(
+            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=self._build_pipeline_options())}
+        )
+        result = converter.convert(self.pdf_path)
+        self.logger.info("Conversion completed")
+        return result
 
-# Picture description via vLLM API — no local model loading, no quantization issues
-pipeline_options.do_picture_description = USE_VLM
-pipeline_options.enable_remote_services = USE_VLM
-if USE_VLM:
-    pipeline_options.picture_description_options = PictureDescriptionApiOptions(
-        url=VLLM_URL,
-        params=dict(
-            model=VLLM_MODEL,
-            max_tokens=200,
-            temperature=0.0,
-        ),
-        prompt=(
-            "You are analyzing a figure from a French financial report. "
-            "Describe what this figure shows in 2-3 factual sentences. "
-            "If it is a chart, list all data points with their labels and values. "
-            "If it is a table, summarize the key numbers."
-        ),
-    )
+    def _apply_hierarchy_postprocess(self, result) -> None:
+        # Enrich section hierarchy using docling-hierarchical-pdf when available.
+        if not self.use_hierarchical_headings:
+            return
 
-# Disable picture classification on Windows (requires MSVC cl.exe)
-pipeline_options.do_picture_classification = False
-
-
-# ── 2. Convert ────────────────────────────────────────────────────────────────
-converter = DocumentConverter(
-    format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
-)
-
-print("Converting document...")
-result = converter.convert(PDF_PATH)
-doc = result.document
-print("Done.")
-
-
-# ── 3. Markdown export ────────────────────────────────────────────────────────
-md = doc.export_to_markdown()
-(OUTPUT_DIR / "full_document.md").write_text(md, encoding="utf-8")
-print(f"Markdown  -> {OUTPUT_DIR}/full_document.md")
-
-
-# ── 4. JSON export ────────────────────────────────────────────────────────────
-(OUTPUT_DIR / "full_document.json").write_text(
-    json.dumps(doc.export_to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
-)
-print(f"JSON      -> {OUTPUT_DIR}/full_document.json")
-
-
-# ── 5. Extract elements ───────────────────────────────────────────────────────
-try:
-    from docling.datamodel.document import TextItem, SectionHeaderItem, ListItem, TableItem, PictureItem
-except ImportError:
-    from docling_core.types.doc.document import TextItem, SectionHeaderItem, ListItem, TableItem, PictureItem
-
-texts, tables, figures = [], [], []
-
-for item, level in doc.iterate_items():
-
-    if isinstance(item, (TextItem, SectionHeaderItem, ListItem)):
-        texts.append({
-            "type"  : type(item).__name__,
-            "label" : str(item.label),
-            "page"  : item.prov[0].page_no if item.prov else None,
-            "text"  : item.text,
-        })
-
-    elif isinstance(item, TableItem):
-        page   = item.prov[0].page_no if item.prov else None
-        tbl_md = item.export_to_markdown(doc=doc)
-        idx    = len(tables) + 1
-        (OUTPUT_DIR / f"table_{idx}_page{page}.md").write_text(tbl_md, encoding="utf-8")
+        self.logger.info("Stage 2/4 - Applying hierarchical heading postprocessor")
         try:
-            df   = item.export_to_dataframe(doc=doc)
-            rows = df.values.tolist()
-            cols = list(df.columns)
-        except Exception:
-            rows, cols = [], []
-        tables.append({
-            "table_id" : f"tbl_{idx:03d}",
-            "page"     : page,
-            "markdown" : tbl_md,
-            "columns"  : cols,
-            "rows"     : rows,
-        })
-        print(f"  Table {idx} (page {page}) -> {len(rows)} rows")
+            ResultPostprocessor(result, source=self.pdf_path).process()
+            self.logger.info("Hierarchical heading postprocessing applied")
+        except Exception as exc:
+            self.logger.warning("Hierarchical postprocessing failed: %s", exc)
 
-    elif isinstance(item, PictureItem):
-        page = item.prov[0].page_no if item.prov else None
-        idx  = len(figures) + 1
-        img_path = OUTPUT_DIR / f"figure_{idx}_page{page}.png"
-        if item.image and item.image.pil_image:
-            item.image.pil_image.save(img_path)
+    def _build_markdown_blocks(self, doc) -> tuple[List[str], int, int]:
+        blocks: List[str] = []
+        table_count = 0
+        figure_count = 0
 
-        caption     = ""
-        description = ""
-        try:
-            caption = item.caption_text(doc) or ""
-        except Exception:
-            pass
-        try:
-            if item.meta and item.meta.description:
-                description = item.meta.description.text or ""
-        except Exception:
-            pass
+        self.logger.info("Stage 3/4 - Building sequential markdown in source order")
 
-        figures.append({
-            "figure_id"   : f"fig_{idx:03d}",
-            "page"        : page,
-            "caption"     : caption,
-            "description" : description,
-            "image_path"  : str(img_path),
-        })
-        print(f"  Figure {idx} (page {page}) -> {img_path}")
-        if description:
-            print(f"    VLM: {description[:100]}...")
+        for item, level in doc.iterate_items():
+            if isinstance(item, (TextItem, SectionHeaderItem, ListItem)):
+                text = (item.text or "").strip()
+                if not text:
+                    continue
 
-(OUTPUT_DIR / "texts.json").write_text(json.dumps(texts, ensure_ascii=False, indent=2), encoding="utf-8")
-(OUTPUT_DIR / "tables.json").write_text(json.dumps(tables, ensure_ascii=False, indent=2), encoding="utf-8")
-(OUTPUT_DIR / "figures.json").write_text(json.dumps(figures, ensure_ascii=False, indent=2), encoding="utf-8")
+                if isinstance(item, SectionHeaderItem):
+                    heading_level = 2
+                    inferred_level = getattr(item, "level", level)
+                    if inferred_level is not None:
+                        heading_level = max(1, min(6, int(inferred_level) + 1))
+                    blocks.append(f"{'#' * heading_level} {text}")
+                elif isinstance(item, ListItem):
+                    blocks.append(f"- {text}")
+                else:
+                    blocks.append(text)
+
+            elif isinstance(item, TableItem):
+                table_count += 1
+                table_html = ""
+
+                # Prefer native HTML export, then dataframe HTML fallback.
+                try:
+                    table_html = item.export_to_html(doc=doc)
+                except Exception:
+                    try:
+                        df = item.export_to_dataframe(doc=doc)
+                        table_html = df.to_html(index=False)
+                    except Exception:
+                        table_html = ""
+
+                if table_html.strip():
+                    blocks.append(table_html)
+                else:
+                    self.logger.warning("Table %s could not be exported to HTML; skipped", table_count)
+
+                self.logger.info("Table %s -> inline in markdown", table_count)
+
+            elif isinstance(item, PictureItem):
+                figure_count += 1
+
+                caption = ""
+                description = ""
+
+                try:
+                    caption = item.caption_text(doc) or ""
+                except Exception:
+                    pass
+
+                try:
+                    if item.meta and item.meta.description:
+                        description = item.meta.description.text or ""
+                except Exception:
+                    pass
+
+                figure_block = []
+                if caption:
+                    figure_block.append(f"*Figure caption:* {caption}")
+                if description:
+                    figure_block.append(description)
+
+                if figure_block:
+                    blocks.append("\n\n".join(figure_block))
+
+                self.logger.info("Figure %s -> inline in markdown", figure_count)
+                if description:
+                    self.logger.debug("VLM figure description preview: %s...", description[:100])
+
+        return blocks, table_count, figure_count
+
+    def _write_markdown(self, blocks: List[str]) -> Path:
+        sequential_md = "\n\n".join(blocks).strip() + "\n"
+        output_file = self.output_dir / "full_document.md"
+        output_file.write_text(sequential_md, encoding="utf-8")
+        self.logger.info("Stage 4/4 - Markdown written to %s", output_file)
+        return output_file
+
+    def _log_summary(self, table_count: int, figure_count: int, output_file: Path) -> None:
+        self.logger.info("=" * 50)
+        self.logger.info("DOCLING EXTRACTION SUMMARY")
+        self.logger.info("=" * 50)
+        self.logger.info("Tables (inline): %s", table_count)
+        self.logger.info("Figures (inline): %s", figure_count)
+        self.logger.info("Output directory: %s", self.output_dir)
+        self.logger.info("Output file: %s", output_file.name)
+
+    def run(self) -> Path:
+        result = self._convert()
+        self._apply_hierarchy_postprocess(result)
+        doc = result.document
+        self.logger.info("Document object ready")
+
+        blocks, table_count, figure_count = self._build_markdown_blocks(doc)
+        output_file = self._write_markdown(blocks)
+        self._log_summary(table_count, figure_count, output_file)
+        return output_file
 
 
-# ── 6. Chunking ───────────────────────────────────────────────────────────────
-chunker = HybridChunker(
-    tokenizer="BAAI/bge-small-en-v1.5",
-    max_tokens=512,
-    merge_peers=True,
-)
-
-chunks_raw    = list(chunker.chunk(doc))
-chunks_output = []
+def main() -> None:
+    extractor = DoclingExtractor()
+    extractor.run()
 
 
-def _to_text(value):
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value
-    return getattr(value, "text", str(value))
-
-
-for i, chunk in enumerate(chunks_raw):
-    meta = getattr(chunk, "meta", None)
-    headings_raw = getattr(meta, "headings", None) if meta else None
-    doc_items = getattr(meta, "doc_items", None) if meta else None
-
-    headings = [_to_text(h) for h in headings_raw] if headings_raw else []
-    el_types = list({str(getattr(ref, "label", "")) for ref in doc_items if getattr(ref, "label", None)}) if doc_items else []
-    page     = None
-    if doc_items and getattr(doc_items[0], "prov", None):
-        page = doc_items[0].prov[0].page_no
-
-    chunks_output.append({
-        "chunk_id"      : f"chunk_{i+1:04d}",
-        "heading_path"  : headings,
-        "element_types" : el_types,
-        "page"          : page,
-        "content"       : chunk.text,
-        "token_count"   : len(chunk.text.split()),
-    })
-
-(OUTPUT_DIR / "chunks.json").write_text(
-    json.dumps(chunks_output, ensure_ascii=False, indent=2), encoding="utf-8"
-)
-
-
-# ── 7. Summary ────────────────────────────────────────────────────────────────
-print("\n" + "="*50)
-print("DOCLING EXTRACTION SUMMARY")
-print("="*50)
-print(f"  Text elements : {len(texts)}")
-print(f"  Tables        : {len(tables)}")
-print(f"  Figures       : {len(figures)}")
-print(f"  Chunks        : {len(chunks_output)}")
-print(f"\nOutput in ./{OUTPUT_DIR}/")
-print("  full_document.md   - full markdown")
-print("  full_document.json - doc model with bounding boxes")
-print("  texts.json         - all text elements")
-print("  tables.json        - structured tables")
-print("  figures.json       - figures + VLM descriptions")
-print("  chunks.json        - RAG-ready chunks")
-print("  table_N_pageX.md   - individual tables")
-print("  figure_N_pageX.png - extracted figure images")
+if __name__ == "__main__":
+    main()

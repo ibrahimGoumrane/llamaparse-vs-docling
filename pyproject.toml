@@ -19,6 +19,7 @@ dependencies = [
     "sentencepiece>=0.2.0",
     "datasets>=3.0.0",
     "opencv-python-headless>=4.13.0.92",
+    "docling-hierarchical-pdf>=0.1.5",
 ]
 
 # ── Index configuration ───────────────────────────────────────────────────────
